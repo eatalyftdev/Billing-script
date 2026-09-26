@@ -1,4 +1,64 @@
-<?php require 'guard.php'; ?>
+<?php
+/**
+ * PHPNuxBill installer front controller.
+ *
+ * WHY THIS EXISTS (cPanel / no-terminal deploys):
+ * The post-install hardening file `.htaccess_firewall` (renamed to `.htaccess`
+ * on the live server) contains:
+ *
+ *     <Files *.php> Deny from all </Files>
+ *     <Files index.php> Allow from all </Files>
+ *     ...
+ *
+ * `<Files index.php>` matches the BASENAME in EVERY directory, so
+ * `/install/index.php` is allowed while `/install/step2.php`, `step3.php`,
+ * `step4.php`, `step5.php`, `update.php` are all denied with 403. There is
+ * deliberately no `install/.htaccess` to override it (see ARCHITECTURE.md
+ * §14.5 -- LiteSpeed was measured to misapply <Files>/<IfFile> rules to files
+ * they did not name, failing closed and taking the wizard down).
+ *
+ * This file is therefore the ONLY installer URL the wizard needs. Every step
+ * is reachable as `install/index.php?s=N` (N = 2,3,4,5 or `update`), which
+ * executes the corresponding `stepN.php`/`update.php` IN-PROCESS via include,
+ * so the browser never requests a denied basename. Direct `step*.php` URLs
+ * still work on hosts without the firewall file and are kept for backwards
+ * compatibility.
+ *
+ * Deploy model: pure tracked PHP, no .htaccess change, no terminal needed --
+ * `git push` + cPanel "Git Version Control > Pull/Deploy" is enough.
+ */
+require __DIR__ . '/guard.php';
+
+$allowed = [
+    '2'      => 'step2.php',
+    '3'      => 'step3.php',
+    '4'      => 'step4.php',
+    '5'      => 'step5.php',
+    'update' => 'update.php',
+];
+
+$step = isset($_GET['s']) ? strtolower(trim((string) $_GET['s'])) : '';
+// Backwards-compatible alias: ?step=2 works exactly like ?s=2.
+if ($step === '' && isset($_GET['step'])) {
+    $step = strtolower(trim((string) $_GET['step']));
+}
+
+if ($step !== '' && isset($allowed[$step])) {
+    // Execute the step in-process so the URL stays on index.php (allowed).
+    // Each step file re-requires guard.php itself; the double-require is
+    // harmless (guard is idempotent) and keeps direct-URL access protected.
+    require __DIR__ . '/' . $allowed[$step];
+    exit;
+}
+
+if ($step !== '') {
+    // Unknown ?s= value -- fail closed back to the welcome screen rather than
+    // including an arbitrary file (path traversal guard: whitelist above is
+    // the only include source).
+    header('Location: index.php', true, 302);
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -47,7 +107,10 @@
                 </ul>
             </div>
             <div class="col-md-12"><br>
-                <a href="step2.php" class="btn btn-primary">Accept &amp; Continue</a>
+                <!-- Routed through index.php (the only basename the
+                     .htaccess_firewall allows): ?s=2 dispatches to step2.php
+                     in-process. Direct step2.php is 403 once .htaccess is live. -->
+                <a href="index.php?s=2" class="btn btn-primary">Accept &amp; Continue</a>
             </div>
         </div>
         <!--  contents area end  -->

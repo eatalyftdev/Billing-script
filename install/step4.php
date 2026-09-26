@@ -6,7 +6,7 @@
  **/
 
 //error_reporting (0);
-require 'guard.php';
+require __DIR__ . '/guard.php';
 $appurl = $_POST['appurl'];
 $db_host = $_POST['dbhost'];
 $db_user = $_POST['dbuser'];
@@ -21,7 +21,7 @@ $cn = '0';
 // APP_URL points at the installer and breaks every asset URL and redirect.
 $appurl = rtrim(trim((string) $appurl), '/');
 if ($appurl === '') {
-    header('location: step3.php?_error=1');
+    header('location: index.php?s=3&_error=1');
     exit;
 }
 $appUrlDefine = 'define("APP_URL", "' . addslashes($appurl) . '");';
@@ -111,7 +111,7 @@ if($_app_stage!="Live"){
         @unlink(__DIR__ . '/radius.sql');
     }
 } else {
-    header("location: step3.php?_error=1");
+    header("location: index.php?s=3&_error=1");
     exit;
 }
 
@@ -143,7 +143,7 @@ if($_app_stage!="Live"){
             if ($cn == '1') {
             ?>
                 <p><strong>Config File Created and Database Imported.</strong><br></p>
-                <form action="step5.php" method="post">
+                <form action="index.php?s=5" method="post">
                     <fieldset>
                         <legend>Click Continue</legend>
                         <button type='submit' class='btn btn-primary'>Continue</button>

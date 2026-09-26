@@ -1,4 +1,4 @@
-<?php require 'guard.php'; ?>
+<?php require __DIR__ . '/guard.php'; ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -26,13 +26,16 @@
 				echo '<h4 style="color: red;"> Unable to Connect Database, Please make sure database info is correct and try again ! </h4>';
 			}//
 
-			$cururl = (((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')|| $_SERVER['SERVER_PORT'] == 443)?'https':'http').'://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
-			$appurl = str_replace('/install/step3.php', '', $cururl);
-			$appurl = str_replace('?_error=1', '', $appurl);
+			// APP_URL default: strip the installer prefix (/install/index.php?s=3)
+			// down to the site root. strtok() drops the query string first so
+			// "?s=3" can never leak into config.php's APP_URL literal.
+			$cururl = (((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')|| $_SERVER['SERVER_PORT'] == 443)?'https':'http').'://' . $_SERVER['HTTP_HOST'] . strtok($_SERVER['REQUEST_URI'], '?');
+			$appurl = str_replace('/install/index.php', '', $cururl);
+			$appurl = str_replace('/install', '', $appurl);
 			$appurl = str_replace('/system', '', $appurl);
 			?>
 
-			<form action="step4.php" method="post">
+			<form action="index.php?s=4" method="post">
 				<fieldset>
 					<legend>Database Connection &amp Site config</legend>
 

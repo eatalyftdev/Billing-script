@@ -654,6 +654,22 @@ does nothing but redirect.
 To deliberately re-run the installer: take a database backup, delete
 `install/.installed`, and restore `install/phpnuxbill.sql` if it is missing.
 
+### 14.6 Installer vs `.htaccess_firewall` (cPanel / no-terminal gotcha)
+
+`.htaccess_firewall` (renamed to `.htaccess` on the live server) denies every
+`*.php` basename except `index.php`, `update.php`, `radius.php`. Because
+`<Files index.php>` matches in *every* directory, `/install/index.php` loads
+while `/install/step2.php` and everything after it return 403 — welcome screen
+works, wizard dead. There is deliberately no `install/.htaccess` to override
+it (see §14.5: LiteSpeed misapplied `<Files>` to files it did not name).
+
+The wizard is therefore a single-URL flow through `install/index.php`, which
+dispatches `?s=2|3|4|5|update` to the matching `stepN.php`/`update.php`
+in-process — pure tracked PHP, deployable with `git push` + cPanel "Git
+Version Control > Pull/Deploy", no terminal or `.htaccess` edit needed. After
+a successful install, delete `install/` entirely (standard practice) and
+confirm the root deny-by-default rule still 403s direct `*.php` URLs.
+
 
 
 ### 14.3 Access‑control files must be in git

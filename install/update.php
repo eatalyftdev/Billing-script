@@ -20,7 +20,7 @@
  * release keeps the original behaviour.
  */
 
-require 'guard.php';
+require __DIR__ . '/guard.php';
 
 if (file_exists(dirname(__DIR__) . '/.git')) {
     die('The bundled updater is disabled on git-managed deployments. Deploy with git instead.');

@@ -1,4 +1,4 @@
-<?php require 'guard.php'; ?>
+<?php require __DIR__ . '/guard.php'; ?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -109,8 +109,11 @@ try {
                 To Login Admin Portal:<br>
                 Use this link -
                 <?php
-                $cururl = (((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $_SERVER['SERVER_PORT'] == 443) ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
-                $appurl = str_replace('/install/step5.php', '', $cururl);
+                // Same routed-URL stripping as step3: drop the query string
+                // first so "?s=5" never leaks into the displayed admin link.
+                $cururl = (((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $_SERVER['SERVER_PORT'] == 443) ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . strtok($_SERVER['REQUEST_URI'], '?');
+                $appurl = str_replace('/install/index.php', '', $cururl);
+                $appurl = str_replace('/install', '', $cururl);
                 $appurl = str_replace('/system', '', $appurl);
                 echo '<a href="' . $appurl . '/admin">' . $appurl . '/admin</a>';
                 ?>
