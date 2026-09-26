@@ -1,78 +1,48 @@
-# The installer must never be reachable on a running server.
+# Access rules for the installer directory.
 #
-# install/step4.php has no lock of its own and imports phpnuxbill.sql, which
-# starts with DROP TABLE IF EXISTS for all 21 tables. Anyone who can reach this
-# folder on a deployed server can therefore wipe the database by submitting the
-# form, and step5.php would then hand them a fresh administrator account.
+# install/step4.php imports install/phpnuxbill.sql, which opens with
+# DROP TABLE IF EXISTS for all 21 tables and has no install lock of its own.
+# Anyone who can reach it can wipe the database, after which step5.php hands
+# them a fresh administrator account.
 #
-# This file is committed on purpose (see .gitignore) so that every clone and
-# every git pull inherits the protection.
+# THE LOCK ITSELF IS NOT HERE. It is install/guard.php, which refuses to run
+# whenever install/.installed exists. step5.php writes that marker as its final
+# action, so the installer locks itself with no manual step. guard.php is plain
+# PHP, so unlike this file it cannot be ignored by the server config and cannot
+# mis-parse. Do not try to move the lock back into this file.
 #
-# The lock keys off install/.installed, which step5.php writes as its final
-# action. That means:
+# This file therefore only hides the handful of files that must never be
+# fetched over HTTP, and it does so with the oldest, most widely supported
+# directives available: <Files> with an exact name, one per file, no regex, no
+# nested or negated <IfModule>, no <IfFile>.
 #
-#   before the first install   .installed is absent  -> installer is reachable
-#   after the first install    .installed is present -> wizard pages redirect
+# That restraint is deliberate and was learned the hard way. An earlier version
+# of this file used <FilesMatch> plus <IfFile> plus nested
+# <IfModule !mod_authz_core.c> fallbacks. On LiteSpeed it was misparsed into a
+# blanket deny: the installer's own stylesheet, logo and every step after the
+# first all returned 403, so the wizard was unusable and unstyled, while
+# index.php still loaded. On Apache 2.4 the <IfFile> block was separately
+# measured to be a silent no-op. Neither construct earned its complexity.
 #
-# so a fresh clone can be installed without anyone having to edit this file, and
-# the protection re-arms itself the moment the wizard finishes. There is no
-# window in which a completed install is left exposed, and no manual step to
-# remember after installing.
+# The .sql files are read straight off disk by step4.php via file_get_contents(),
+# which this file does not affect, so denying them here costs the installer
+# nothing. Without it, a deployed server publishes its full database schema at a
+# fixed and well-known path.
 #
-# IMPORTANT: this <IfFile> block is best effort only. It was measured to be a
-# silent no-op on Apache 2.4 with AllowOverride All, because a bare relative
-# filename is not resolved to the .htaccess directory the way <FilesMatch>
-# patterns are. Do not rely on it. install/guard.php is the lock that actually
-# holds, because it is plain PHP and cannot be ignored by the server config.
-# The block is kept for hosts where <IfFile> does work, so that the wizard is
-# stopped before PHP runs at all.
-#
-# The .sql files and the updater are the part that must not depend on any
-# conditional, so they are denied unconditionally below.
-#
-# install/guard.php enforces the same rule in PHP for the wizard pages.
-#
-# To deliberately re-run the installer, delete install/.installed and remove this
-# file, and take a database backup first.
-#
-# Apache 2.4 syntax. On Apache 2.2 use "Deny from all" instead.
+# Apache 2.4 syntax, which is what cPanel/LiteSpeed implements.
 
-# Never serve the schema or the upstream updater over HTTP. The wizard reads the
-# .sql files straight off disk with file_get_contents(), which .htaccess does not
-# affect, so denying them here costs the installer nothing. Without this, a
-# deployed server publishes its full database schema to anyone who guesses the
-# filename - which is a fixed, well-known path.
-<FilesMatch "\.(sql|md|ini|log)$">
-    <IfModule mod_authz_core.c>
-        Require all denied
-    </IfModule>
+<Files "phpnuxbill.sql">
+    Require all denied
+</Files>
 
-    <IfModule !mod_authz_core.c>
-        Order Allow,Deny
-        Deny from all
-    </IfModule>
-</FilesMatch>
+<Files "radius.sql">
+    Require all denied
+</Files>
 
-# The upstream updater overwrites local customisations and must never be
-# reachable on a deployed server. See architecture.md.
-<FilesMatch "^update\.php$">
-    <IfModule mod_authz_core.c>
-        Require all denied
-    </IfModule>
+<Files "guard.php">
+    Require all denied
+</Files>
 
-    <IfModule !mod_authz_core.c>
-        Order Allow,Deny
-        Deny from all
-    </IfModule>
-</FilesMatch>
-
-<IfFile ".installed">
-    <IfModule mod_authz_core.c>
-        Require all denied
-    </IfModule>
-
-    <IfModule !mod_authz_core.c>
-        Order Allow,Deny
-        Deny from all
-    </IfModule>
-</IfFile>
+<Files "update.php">
+    Require all denied
+</Files>
