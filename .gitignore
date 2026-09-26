@@ -16,6 +16,10 @@ system/paymentgateway/**
 !system/paymentgateway/ui/
 !system/paymentgateway/ui/index.html
 !system/paymentgateway/index.html
+# Gateways we ship from this repository must survive a fresh clone, otherwise
+# a live server pulled from git would have no Tranzak module at all.
+!system/paymentgateway/tranzak.php
+!system/paymentgateway/ui/tranzak.tpl
 !system/plugin/ui/
 system/plugin/ui/*
 !system/plugin/ui/index.html
@@ -58,3 +62,20 @@ docs/**
 !docs/insomnia.rest.json
 !system/uploads/paid.png
 system/uploads/invoices/**
+
+# .htaccess is ignored by default (line above), but these three are access
+# control, not local machine config. If they are not in git then a server set up
+# with "git clone" or "git pull" silently runs without them:
+#   install/.htaccess  - blocks the installer, which would otherwise DROP every
+#                        table and hand out a new admin account
+#   system/.htaccess   - blocks direct web access to system/*.php
+#   pages/.htaccess    - CORS headers the page builder relies on
+!install/.htaccess
+!system/.htaccess
+# pages/ is a generated directory and stays ignored, but the CORS rules have to
+# be in git. Un-ignoring the directory itself is required first: git never
+# descends into an excluded directory, so a bare "!pages/.htaccess" is ignored.
+!pages/
+pages/*
+!pages/.htaccess
+

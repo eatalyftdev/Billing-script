@@ -452,6 +452,52 @@ shared‑user checks against the RADIUS DB.
   `Package::rechargeUser()` on success. Payment audit logs are kept
   (`Message::logMessage` / `tbl_message_logs`).
 
+#### Tranzak (Cameroon mobile money + card), installed as `system/paymentgateway/tranzak.php`
+- Self‑contained: no existing gateway, core file or device driver was touched.
+  `callback.php` already `include`s `system/paymentgateway/{action}.php` and
+  calls `{action}_payment_notification()`, so the webhook needs no routing
+  change, and `paymentgateway.php` discovers the module automatically.
+- Admin page `paymentgateway/tranzak` (Smarty `pg` namespace,
+  `system/paymentgateway/ui/tranzak.tpl`) writes to `tbl_appconfig`:
+  `tranzak_env` (`sandbox`/`production`), `tranzak_app_id`, `tranzak_app_key`,
+  `tranzak_webhook_authkey`, `tranzak_payment_mode` (`wallet`/`redirect`), plus
+  the internal cache rows `tranzak_token` / `tranzak_token_expires_at`. The
+  cache rows are never rendered; both secrets are write‑only fields (empty
+  keeps the stored value) and the form is CSRF‑checked.
+- Key prefixes are validated against the selected environment (`SAND_` /
+  `PROD_`) and the bearer token is cached until 75% of its `expiresIn`, with a
+  per‑request memo and one retry with a fresh token on a rejected one. Because
+  `$config` is a bootstrap snapshot, `tranzak_save_setting()` also updates it,
+  so a value written earlier in a request is never read back stale.
+- Data flow: checkout posts `amount`/`currencyCode` (`XAF`)/
+  `mchTransactionRef` (`WIFI-{order_id}`) to
+  `xp021/v1/request/create-mobile-wallet-charge` (or `/create` in redirect
+  mode) and persists `requestId` into `gateway_trx_id` immediately, so a
+  webhook arriving mid‑flight already matches. `pg_url_payment` is set to the
+  check page for a direct wallet charge, because `order.php` bounces
+  `/order/view/{id}/check` back to the buy page while it is empty.
+- Status: `tranzak_get_status()` re‑reads `xp021/v1/request/details`, and
+  `refresh-transaction-status` when still `PENDING`/`PAYMENT_IN_PROGRESS`
+  (mobile money operators do not always notify in time). A
+  `PAYER_REDIRECT_REQUIRED` answer sends the customer back to `paymentAuthUrl`.
+  `FAILED`/`CANCELLED*` close the order (status 3) so they can retry.
+- Webhook `REQUEST.COMPLETED` at `{site}/?_route=callback/tranzak`: the static
+  `authKey` is a sanity check only, and the deciding status is always re‑fetched
+  server side. Activation re‑reads the row, short‑circuits on status 2, and
+  verifies `requestId`, `mchTransactionRef`, amount and currency before
+  `Package::rechargeUser()`, so duplicate deliveries, a customer clicking
+  "check status" at the same moment, and a forged/early payload cannot produce
+  two vouchers. Provider text is mapped to plain language before it reaches the
+  customer, and credentials are stripped from everything sent to Telegram.
+- Tests: `tests/tranzak_test.php` (36 cases, no dependencies). In‑process cases
+  run in a CLI subprocess because the gateway ends requests with `r2()` or
+  `header()+exit`; webhooks are delivered as real HTTP POSTs to
+  `php -S`, because `php://input` is empty under the CLI SAPI, with a state file
+  standing in for the database. `Http`, the ORM and `Package::rechargeUser` are
+  stubbed, so no network and no database are needed.
+- Not implemented (deliberately): refunds/payouts. Tranzak settles payouts in
+  multiples of 10 XAF, which a future payout module would have to respect.
+
 ### One‑click updater
 - `update.php` downloads the master branch ZIP, extracts to
   `system/cache/`, and merges files into the web root with a multi‑step flow
@@ -501,6 +547,84 @@ shared‑user checks against the RADIUS DB.
 - **Maintenance mode**: `config['maintenance_mode']` +
   `maintenance_date`; `displayMaintenanceMessage()` serves a 503 page (with
   optional forced customer logout).
+
+### 14.1 Install once, then deploy with git
+
+The installer is a one‑time bootstrap, not an update path. After the first
+install every server is updated with `git pull` plus, if the schema changed, an
+explicit migration.
+
+- `config.php` and the database are per‑server and gitignored. Create them once
+  per server, never commit them.
+- Do **not** use the root `update.php` on a git deployment. It downloads the
+  upstream `master` ZIP and merges it, which silently overwrites local work.
+  `install/update.php` is a hardcoded legacy upgrader, not a general migration
+  tool.
+- The web installer must be unreachable once installed; see §14.2.
+
+### 14.2 Installer hazards (verified on PHP 8.0.30 / MySQL, Sept 2026)
+
+Four things about `install/` are worth knowing before trusting it.
+
+1. **`step4.php` has no lock and is destructive.** It imports
+   `install/phpnuxbill.sql`, which opens with `DROP TABLE IF EXISTS` for all 21
+   tables. Anyone who can reach the installer on a deployed server can wipe the
+   database, and `step5.php` will then hand them a fresh administrator account.
+   `install/.htaccess` (deny all) is committed for this reason — it must be
+   present on every server.
+2. **`step4.php` ignores the Application URL field.** It writes
+   `define("APP_URL", $protocol . $host . $baseDir)` computed from its *own*
+   request path, so `APP_URL` always comes out ending in `/install`. Since
+   `init.php` derives `U` from `APP_URL` and every asset URL and redirect uses
+   it, the result is a broken app. Fix `APP_URL` in `config.php` after
+   installing, and pin it as a literal.
+3. **`step5.php` deletes `pages_template/`.** It copies the directory to
+   `pages/` and then calls `removeDir($sourceDir)`. `pages_template` is tracked
+   in git, so committing straight after an install deletes it from the
+   repository and the next fresh clone has nothing to install from. Restore it
+   with `git checkout -- pages_template` (or stage only the files you meant to
+   change).
+4. **`step4.php`/`step5.php` use working‑directory‑relative paths**
+   (`../config.php`, `phpnuxbill.sql`, and `$_SERVER['DOCUMENT_ROOT']` for the
+   `pages` copy). These resolve as intended under Apache, but not under
+   `php -S` unless the server is launched from `install/` with the project root
+   as its document root.
+
+`APP_URL` must also be a literal rather than `dirname($_SERVER['SCRIPT_NAME'])`
+whenever the app is not at the domain root: the value is also used for
+`system/api.php`, whose `SCRIPT_NAME` differs from the UI's.
+
+### 14.3 Access‑control files must be in git
+
+`.htaccess` is gitignored, which silently strips access control from any server
+set up with `git clone`. Three files are therefore un‑ignored on purpose:
+
+| File | Why it must ship |
+|------|------------------|
+| `install/.htaccess` | Denies the installer; without it the database can be wiped (§14.2). |
+| `system/.htaccess` | Denies direct web access to `system/*.php`, with explicit exceptions for `api.php`, `cron.php`, `cron_reminder.php`. |
+| `pages/.htaccess` | CORS headers the page builder depends on. |
+
+`pages/` stays ignored, so `pages/.htaccess` needs the three‑line idiom in
+`.gitignore` (`!pages/`, then `pages/*`, then `!pages/.htaccess`) — git never
+descends into an excluded directory, so a bare `!pages/.htaccess` is ignored.
+
+These rules are Apache‑only. On nginx the equivalent `location` blocks have to
+be written by hand.
+
+### 14.4 Local development note (XAMPP)
+
+If another project already claims `ServerName localhost` in
+`apache/conf/extra/httpd-vhosts.conf`, it overrides the default document root
+and every path under it, so a junction inside `htdocs` is never reached. PHPNuxBill
+is therefore served by its own vhost on port 8080 with the project folder as the
+document root, which needs no `hosts` file edit (editing
+`C:\Windows\System32\drivers\etc\hosts` requires elevation). `APP_URL` must be
+`http://localhost:8080` to match.
+
+`system/lan/english.json` is a tracked file that the application **rewrites at
+runtime** to add missing translation keys, so it shows up as modified after any
+page render. That is expected, not a local edit.
 
 ## 15. File‑by‑File Reference of Core Entry Points
 

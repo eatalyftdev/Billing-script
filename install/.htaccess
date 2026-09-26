@@ -1,0 +1,21 @@
+# The installer must never be reachable on a running server.
+#
+# install/step4.php has no lock of its own and imports phpnuxbill.sql, which
+# starts with DROP TABLE IF EXISTS for all 21 tables. Anyone who can reach this
+# folder on a deployed server can therefore wipe the database by submitting the
+# form, and step5.php would then hand them a fresh administrator account.
+#
+# This file is committed on purpose (see .gitignore) so that every clone and
+# every git pull inherits the protection. Delete this file only while you are
+# actually running the installer.
+#
+# Apache 2.4 syntax. On Apache 2.2 use "Deny from all" instead.
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    Order Allow,Deny
+    Deny from all
+</IfModule>
