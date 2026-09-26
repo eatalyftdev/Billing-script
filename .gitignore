@@ -1,4 +1,9 @@
 config.php
+# Marker written by install/step5.php once the wizard has run. It is what
+# install/.htaccess and install/guard.php key off to lock the installer, so it
+# must exist on the deployed server but must never be committed - a clone that
+# shipped it would present a locked installer to a server that still needs one.
+install/.installed
 .DS_Store
 .vscode/
 ui/ui/compiled

@@ -1,3 +1,4 @@
+<?php require 'guard.php'; ?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -14,8 +15,15 @@
     <link type='text/css' href="css/bootstrap.min.css" rel="stylesheet">
 </head>
 <?php
-$sourceDir = $_SERVER['DOCUMENT_ROOT'].'/pages_template';
-$targetDir = $_SERVER['DOCUMENT_ROOT'].'/pages';
+// Resolved from __DIR__ rather than $_SERVER['DOCUMENT_ROOT']: on cPanel the
+// application usually lives in a subdirectory of the docroot, or the docroot is
+// repointed at the application folder, so DOCUMENT_ROOT and the real location of
+// this script disagree. When they did, pages_template/ was looked up in the
+// wrong tree, the copy threw, and the wizard still reported success - leaving
+// the site installed with no pages/ directory at all.
+$appRoot = dirname(__DIR__);
+$sourceDir = $appRoot . '/pages_template';
+$targetDir = $appRoot . '/pages';
 
 function copyDir($src, $dst) {
     $dir = opendir($src);
@@ -71,6 +79,13 @@ try {
 } catch (Exception $e) {
     echo 'Error: ', $e->getMessage(), "\n";
 }
+
+// The database has been imported and config.php written by this point, so the
+// installer must never run again. Drop the marker that install/guard.php and
+// install/.htaccess both key off, which re-arms the lock with no manual step.
+// Writing it even when the template copy above failed is deliberate: the
+// destructive part of the wizard has already run either way.
+@file_put_contents(__DIR__ . DIRECTORY_SEPARATOR . '.installed', 'Installed ' . date('c') . "\n");
 ?>
 <body style='background-color: #FBFBFB;'>
     <div id='main-container'>

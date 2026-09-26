@@ -1,3 +1,4 @@
+<?php require 'guard.php'; ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -37,7 +38,7 @@
 
 					<div class="form-group">
 						<label for="appurl">Application URL</label>
-						<input type="text" class="form-control" id="appurl" name="appurl" value="<?php echo $appurl; ?>">
+    <input type="text" class="form-control" id="appurl" name="appurl" value="<?php echo $appurl; ?>" required>
 						<span class='help-block'>Application url without trailing slash at the end of url (e.g. http://172.16.10.10). Please keep default, if you are unsure.</span>
 					</div>
 					<div class="form-group">

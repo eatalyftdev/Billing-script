@@ -8,9 +8,29 @@
 try {
     require_once 'init.php';
 } catch (Throwable $e) {
-    die($e->getMessage() . '<br><pre>' . $e->getTraceAsString() . '</pre>');
+    // Never leak absolute server paths or argument values to the browser on a
+    // public deployment. config.php sets $_app_stage, which init.php exposes as
+    // a global once it has been read; fall back to the safe behaviour if the
+    // failure happened before that happened.
+    global $_app_stage;
+    if (isset($_app_stage) && $_app_stage !== 'Live') {
+        die($e->getMessage() . '<br><pre>' . $e->getTraceAsString() . '</pre>');
+    }
+    error_log('PHPNuxBill bootstrap failure: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+    if (!headers_sent()) {
+        header('HTTP/1.1 500 Internal Server Error');
+    }
+    die('The application could not start. Check the server error log.');
 } catch (Exception $e) {
-    die($e->getMessage() . '<br><pre>' . $e->getTraceAsString() . '</pre>');
+    global $_app_stage;
+    if (isset($_app_stage) && $_app_stage !== 'Live') {
+        die($e->getMessage() . '<br><pre>' . $e->getTraceAsString() . '</pre>');
+    }
+    error_log('PHPNuxBill bootstrap failure: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
+    if (!headers_sent()) {
+        header('HTTP/1.1 500 Internal Server Error');
+    }
+    die('The application could not start. Check the server error log.');
 }
 
 function _notify($msg, $type = 'e')

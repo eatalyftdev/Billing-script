@@ -564,35 +564,78 @@ explicit migration.
 
 ### 14.2 Installer hazards (verified on PHP 8.0.30 / MySQL, Sept 2026)
 
-Four things about `install/` are worth knowing before trusting it.
+`install/` shipped with four defects. All four are now fixed in this repository;
+they are documented because the fixes are local patches to vendor files and will
+conflict on the next upstream merge.
 
-1. **`step4.php` has no lock and is destructive.** It imports
+1. **`step4.php` had no lock and is destructive.** It imports
    `install/phpnuxbill.sql`, which opens with `DROP TABLE IF EXISTS` for all 21
-   tables. Anyone who can reach the installer on a deployed server can wipe the
-   database, and `step5.php` will then hand them a fresh administrator account.
-   `install/.htaccess` (deny all) is committed for this reason — it must be
-   present on every server.
-2. **`step4.php` ignores the Application URL field.** It writes
+   tables, so anyone who could reach the installer could wipe the database —
+   after which `step5.php` hands them a fresh administrator account. Now locked
+   by `install/guard.php` plus `install/.htaccess`; see 14.5.
+2. **`step4.php` ignored the Application URL field.** It wrote
    `define("APP_URL", $protocol . $host . $baseDir)` computed from its *own*
-   request path, so `APP_URL` always comes out ending in `/install`. Since
+   request path, so `APP_URL` always came out ending in `/install`. Since
    `init.php` derives `U` from `APP_URL` and every asset URL and redirect uses
-   it, the result is a broken app. Fix `APP_URL` in `config.php` after
-   installing, and pin it as a literal.
+   it, the result was a broken app. It now writes the URL submitted in step 3 as
+   a literal, and step 3 marks the field `required` so a blank value is rejected
+   rather than silently producing a request-derived URL.
 3. **`step5.php` deletes `pages_template/`.** It copies the directory to
    `pages/` and then calls `removeDir($sourceDir)`. `pages_template` is tracked
    in git, so committing straight after an install deletes it from the
    repository and the next fresh clone has nothing to install from. Restore it
-   with `git checkout -- pages_template` (or stage only the files you meant to
-   change).
-4. **`step4.php`/`step5.php` use working‑directory‑relative paths**
-   (`../config.php`, `phpnuxbill.sql`, and `$_SERVER['DOCUMENT_ROOT']` for the
-   `pages` copy). These resolve as intended under Apache, but not under
-   `php -S` unless the server is launched from `install/` with the project root
-   as its document root.
+   with `git checkout -- pages_template`.
+4. **Working-directory-relative paths.** `step4.php` wrote `../config.php` and
+   read `phpnuxbill.sql`, and `step5.php` resolved the `pages` copy through
+   `$_SERVER['DOCUMENT_ROOT']`. All of these now use `__DIR__`. The
+   `DOCUMENT_ROOT` case was the dangerous one: on cPanel the app normally lives
+   outside the docroot, or the docroot is repointed at the app, so the wizard
+   looked for `pages_template` in the wrong tree, threw, printed the error
+   inline — and still reported success, leaving the site installed with no
+   `pages/` directory at all.
 
 `APP_URL` must also be a literal rather than `dirname($_SERVER['SCRIPT_NAME'])`
 whenever the app is not at the domain root: the value is also used for
-`system/api.php`, whose `SCRIPT_NAME` differs from the UI's.
+`system/api.php`, whose `SCRIPT_NAME` differs from the UI's. A request-derived
+`APP_URL` resolves to `.../system` for API requests, producing a doubled
+`/system/system/api.php` in `U`.
+
+### 14.5 The installer lock, and why it is two layers
+
+The installer is reachable exactly once: before `config.php` exists, and never
+again. Two independent mechanisms enforce that, and each is written so that its
+own failure mode is the safe one.
+
+| Layer | Mechanism | Fails by |
+| --- | --- | --- |
+| `install/guard.php` | `file_exists(__DIR__ . '/.installed')`, then redirect and `exit` | staying reachable — inert, not destructive |
+| `install/.htaccess` | `<IfFile ".installed">` → `Require all denied` | nothing; PHP still holds the lock |
+
+`install/step5.php` writes `.installed` as its final action, which re-arms the
+lock automatically. **There is no manual step after installing** — no file to
+rename, nothing to remember, and no window in which a finished install is left
+exposed.
+
+The key detail: the marker is *not* `config.php`. `step4.php` writes
+`config.php` at line 86, before `step5.php` has run, so a `config.php`-based
+lock would lock the operator out of the final page of the wizard they are still
+running.
+
+`<IfFile>` was measured to be a **silent no-op** on Apache 2.4 with
+`AllowOverride All` — a bare relative filename is not resolved to the `.htaccess`
+directory the way `<FilesMatch>` patterns are. It is retained only for hosts
+where it does work, and must never be treated as the lock. The PHP guard is the
+lock.
+
+`install/.htaccess` additionally denies `*.sql`, `*.md`, `*.ini`, `*.log` and
+`update.php` **unconditionally**, with no dependence on `<IfFile>`. The wizard
+reads the `.sql` files from disk via `file_get_contents()`, which `.htaccess`
+does not affect, so this costs the installer nothing — and without it a deployed
+server publishes its entire database schema at a fixed, well-known path.
+
+To deliberately re-run the installer: take a database backup, then delete
+`install/.installed` and remove `install/.htaccess`. Restore both afterwards.
+
 
 ### 14.3 Access‑control files must be in git
 
@@ -611,6 +654,32 @@ descends into an excluded directory, so a bare `!pages/.htaccess` is ignored.
 
 These rules are Apache‑only. On nginx the equivalent `location` blocks have to
 be written by hand.
+
+The same "git never descends into an excluded directory" trap applies to
+`system/uploads/`. `system/uploads/**` silently excluded the subdirectories
+themselves, which made the existing `!system/uploads/sms/index.html` negations
+no‑ops, and six required files were missing from every clone:
+
+| File | Consequence of omitting it |
+|------|----------------------------|
+| `notifications.default.json` | **Total outage.** `init.php:63` hard‑fails without it, so every page 500s, not just admin. |
+| `user.default.jpg` | Broken avatar on every customer without a photo (`onerror` fallback in 6 templates). |
+| `index.html` (4 dirs) | Directory listings become browsable. |
+
+`.gitignore` now re‑includes the subdirectories explicitly before negating the
+files inside them, and the required defaults are allow‑listed. The fix is
+verified with `git add --dry-run`; runtime artefacts (`sms/send.log`,
+`_sysfrm_tmp_/tmp1`, `cache/*`, uploaded invoices) remain ignored.
+
+**The general lesson:** in this repository, any file the application *reads* must
+be verified as tracked. `git ls-files --others --ignored --exclude-standard`
+lists everything that exists locally but would not ship — cross-reference it
+against the paths in the code before deploying to a new server. A missing
+default asset is a live outage and a missing `.htaccess` is a security hole, and
+both fail silently at runtime rather than at deploy time.
+
+`config.php` is ignored by design: it holds per‑server credentials and must never
+be committed. Each server gets its own, written by the installer or by hand.
 
 ### 14.4 Local development note (XAMPP)
 

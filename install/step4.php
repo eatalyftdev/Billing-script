@@ -6,12 +6,26 @@
  **/
 
 //error_reporting (0);
+require 'guard.php';
 $appurl = $_POST['appurl'];
 $db_host = $_POST['dbhost'];
 $db_user = $_POST['dbuser'];
 $db_pass = $_POST['dbpass'];
 $db_name = $_POST['dbname'];
 $cn = '0';
+
+// The Application URL is mandatory, and it is now written into config.php as a
+// literal. Previously it was recomputed from $_SERVER['SCRIPT_NAME'], which
+// resolves to "/install" when the wizard is reached through a subdirectory or
+// behind a proxy that rewrites SCRIPT_NAME, producing a config.php whose
+// APP_URL points at the installer and breaks every asset URL and redirect.
+$appurl = rtrim(trim((string) $appurl), '/');
+if ($appurl === '') {
+    header('location: step3.php?_error=1');
+    exit;
+}
+$appUrlDefine = 'define("APP_URL", "' . addslashes($appurl) . '");';
+
 try {
     $dbh = new pdo(
         "mysql:host=$db_host;dbname=$db_name",
@@ -28,10 +42,7 @@ if ($cn == '1') {
     if (isset($_POST['radius']) && $_POST['radius'] == 'yes') {
         $input = '<?php
 
-$protocol = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off" || $_SERVER["SERVER_PORT"] == 443) ? "https://" : "http://";
-$host = $_SERVER["HTTP_HOST"];
-$baseDir = rtrim(dirname($_SERVER["SCRIPT_NAME"]), "/\\\\");
-define("APP_URL", $protocol . $host . $baseDir);
+' . $appUrlDefine . '
 
 // Live, Dev, Demo
 $_app_stage = "Live";
@@ -59,10 +70,7 @@ if($_app_stage!="Live"){
 }';
     } else {
         $input = '<?php
-$protocol = (!empty($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] !== "off" || $_SERVER["SERVER_PORT"] == 443) ? "https://" : "http://";
-$host = $_SERVER["HTTP_HOST"];
-$baseDir = rtrim(dirname($_SERVER["SCRIPT_NAME"]), "/\\\\");
-define("APP_URL", $protocol . $host . $baseDir);
+' . $appUrlDefine . '
 
 // Live, Dev, Demo
 $_app_stage = "Live";
@@ -83,15 +91,15 @@ if($_app_stage!="Live"){
     ini_set("display_startup_errors", 0);
 }';
     }
-    $wConfig = "../config.php";
+    $wConfig = __DIR__ . '/../config.php';
     $fh = fopen($wConfig, 'w') or die("Can't create config file, your server does not support 'fopen' function,
 	please create a file named - config.php with following contents- <br/>$input");
     fwrite($fh, $input);
     fclose($fh);
-    $sql = file_get_contents('phpnuxbill.sql');
+    $sql = file_get_contents(__DIR__ . '/phpnuxbill.sql');
     $qr = $dbh->exec($sql);
     if (isset($_POST['radius']) && $_POST['radius'] == 'yes') {
-        $sql = file_get_contents('radius.sql');
+        $sql = file_get_contents(__DIR__ . '/radius.sql');
         $qrs = $dbh->exec($sql);
     }
 } else {
