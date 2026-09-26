@@ -98,9 +98,17 @@ if($_app_stage!="Live"){
     fclose($fh);
     $sql = file_get_contents(__DIR__ . '/phpnuxbill.sql');
     $qr = $dbh->exec($sql);
+    // The schema is removed from disk the moment it has been imported, so a
+    // deployed server does not publish its entire database layout at a fixed,
+    // well-known URL. install/.htaccess used to hide it, but <Files> was
+    // measured to be misapplied by LiteSpeed, so the file is made unreachable
+    // by not existing rather than by a rule that may be ignored. Restoring it
+    // for a deliberate re-install is `git checkout -- install/phpnuxbill.sql`.
+    @unlink(__DIR__ . '/phpnuxbill.sql');
     if (isset($_POST['radius']) && $_POST['radius'] == 'yes') {
         $sql = file_get_contents(__DIR__ . '/radius.sql');
         $qrs = $dbh->exec($sql);
+        @unlink(__DIR__ . '/radius.sql');
     }
 } else {
     header("location: step3.php?_error=1");

@@ -15,12 +15,15 @@
  * check would lock the operator out of the final page of the wizard they are
  * still running. step5 writes .installed as its last action instead.
  *
- * Each layer is written so that its own failure mode is the safe one:
- *   - .htaccess misbehaving  -> installer is reachable, but this guard refuses
- *   - this guard misbehaving  -> .htaccess still denies, on hosts that honour it
+ * This file is the ONLY access control on the installer. It used to be backed
+ * by install/.htaccess, which has been removed: <IfFile> and <Files> were both
+ * measured to be misapplied by LiteSpeed, which denied the installer's own
+ * stylesheet, logo and every step after the first, making the wizard unusable.
+ * A rule that a web server may parse into something broader than it says is not
+ * a defence, so the lock lives in PHP, where it either runs or does not.
  *
- * To re-run the installer on purpose, delete install/.installed and remove
- * install/.htaccess, and take a database backup first.
+ * To re-run the installer on purpose, delete install/.installed and take a
+ * database backup first.
  */
 
 $__phpnuxbill_install_lock = __DIR__ . DIRECTORY_SEPARATOR . '.installed';

@@ -572,7 +572,7 @@ conflict on the next upstream merge.
    `install/phpnuxbill.sql`, which opens with `DROP TABLE IF EXISTS` for all 21
    tables, so anyone who could reach the installer could wipe the database —
    after which `step5.php` hands them a fresh administrator account. Now locked
-   by `install/guard.php` plus `install/.htaccess`; see 14.5.
+   by `install/guard.php`; see 14.5.
 2. **`step4.php` ignored the Application URL field.** It wrote
    `define("APP_URL", $protocol . $host . $baseDir)` computed from its *own*
    request path, so `APP_URL` always came out ending in `/install`. Since
@@ -600,53 +600,77 @@ whenever the app is not at the domain root: the value is also used for
 `APP_URL` resolves to `.../system` for API requests, producing a doubled
 `/system/system/api.php` in `U`.
 
-### 14.5 The installer lock, and why it is two layers
+### 14.5 The installer lock, and why it is PHP-only
 
 The installer is reachable exactly once: before `config.php` exists, and never
-again. Two independent mechanisms enforce that, and each is written so that its
-own failure mode is the safe one.
-
-| Layer | Mechanism | Fails by |
-| --- | --- | --- |
-| `install/guard.php` | `file_exists(__DIR__ . '/.installed')`, then redirect and `exit` | staying reachable — inert, not destructive |
-| `install/.htaccess` | `<IfFile ".installed">` → `Require all denied` | nothing; PHP still holds the lock |
-
-`install/step5.php` writes `.installed` as its final action, which re-arms the
-lock automatically. **There is no manual step after installing** — no file to
-rename, nothing to remember, and no window in which a finished install is left
-exposed.
+again. `install/step5.php` writes `install/.installed` as its final action, and
+`install/guard.php` — included at the top of `index.php`, `step2.php` through
+`step5.php` — refuses to run whenever that marker exists. **There is no manual
+step after installing**: no file to rename, nothing to remember, and no window in
+which a finished install is left exposed.
 
 The key detail: the marker is *not* `config.php`. `step4.php` writes
 `config.php` at line 86, before `step5.php` has run, so a `config.php`-based
 lock would lock the operator out of the final page of the wizard they are still
 running.
 
-`<IfFile>` was measured to be a **silent no-op** on Apache 2.4 with
-`AllowOverride All` — a bare relative filename is not resolved to the `.htaccess`
-directory the way `<FilesMatch>` patterns are. It is retained only for hosts
-where it does work, and must never be treated as the lock. The PHP guard is the
-lock.
+**There is no `install/.htaccess`, and that is a finding rather than an
+oversight.** It existed, and it was removed after two successive attempts both
+failed on LiteSpeed:
 
-`install/.htaccess` additionally denies `*.sql`, `*.md`, `*.ini`, `*.log` and
-`update.php` **unconditionally**, with no dependence on `<IfFile>`. The wizard
-reads the `.sql` files from disk via `file_get_contents()`, which `.htaccess`
-does not affect, so this costs the installer nothing — and without it a deployed
-server publishes its entire database schema at a fixed, well-known path.
+| Attempt | Construct | Observed on LiteSpeed |
+| --- | --- | --- |
+| 1 | `<FilesMatch>` + `<IfFile>` + nested `<IfModule !mod_authz_core.c>` | Blanket deny: `style.css`, `logo.png` and every step after the first returned 403, so the wizard was unstyled and unusable while `index.php` still loaded |
+| 2 | Four plain `<Files "name">` directives | `phpnuxbill.sql` correctly denied, but `step2.php` and `step3.php` also 403 — the named-file rules were applied to files they did not name |
 
-To deliberately re-run the installer: take a database backup, then delete
-`install/.installed` and remove `install/.htaccess`. Restore both afterwards.
+Attempt 2 is the damning one: `<Files "guard.php">` cannot plausibly deny
+`step2.php`, so the directive was not being scoped to the name at all. On Apache
+2.4 the same file behaved correctly, and `<IfFile>` was separately measured to
+be a silent no-op there. The lesson is that `.htaccess` on this application can
+only be relied upon for the simple, long‑standing rules in `system/.htaccess` and
+`pages/.htaccess` — anything conditional is a liability, because a server that
+misparses a rule tends to fail *closed* and take the application down with it.
+
+So the destructive paths are closed in PHP instead, where a rule either runs or
+does not:
+
+- **The wizard** is locked by `install/guard.php` on the `.installed` marker.
+- **`install/phpnuxbill.sql` and `radius.sql`** are `@unlink`ed by `step4.php`
+  immediately after a successful import, so a deployed server has no schema file
+  to serve at all. Restore for a deliberate re-install with
+  `git checkout -- install/phpnuxbill.sql`.
+- **`install/update.php`** is disabled outright when a `.git` directory or file
+  exists at the project root. This one matters: the upstream updater has *no
+  authentication whatsoever* — it includes `config.php` and immediately issues
+  `CREATE TABLE` and `ALTER TABLE` against the live database as the
+  application’s own database user, so anyone who can reach it over HTTP can
+  change the schema of a production database. The test is self-configuring, so a
+  git clone disables it with no setup and a plain FTP upload of the upstream
+  release keeps the original behaviour.
+
+`guard.php` is itself fetchable, which is harmless: it contains no secrets and
+does nothing but redirect.
+
+To deliberately re-run the installer: take a database backup, delete
+`install/.installed`, and restore `install/phpnuxbill.sql` if it is missing.
+
 
 
 ### 14.3 Access‑control files must be in git
 
 `.htaccess` is gitignored, which silently strips access control from any server
-set up with `git clone`. Three files are therefore un‑ignored on purpose:
+set up with `git clone`. Two files are therefore un‑ignored on purpose:
 
 | File | Why it must ship |
 |------|------------------|
-| `install/.htaccess` | Denies the installer; without it the database can be wiped (§14.2). |
 | `system/.htaccess` | Denies direct web access to `system/*.php`, with explicit exceptions for `api.php`, `cron.php`, `cron_reminder.php`. |
 | `pages/.htaccess` | CORS headers the page builder depends on. |
+
+A third, `install/.htaccess`, used to be listed here. It has been removed — see
+§14.5 for the two misparses that forced it out, and for why the installer is
+locked in PHP instead. The short version: a conditional or scoped `.htaccess`
+rule on LiteSpeed was observed to apply to files it did not name, so anything
+whose failure would be a security hole had to stop depending on it.
 
 `pages/` stays ignored, so `pages/.htaccess` needs the three‑line idiom in
 `.gitignore` (`!pages/`, then `pages/*`, then `!pages/.htaccess`) — git never

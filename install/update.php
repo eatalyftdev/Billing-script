@@ -1,3 +1,31 @@
+<?php
+/**
+ * The upstream updater is disabled on git-managed deployments.
+ *
+ * This script has no authentication of any kind. It includes ../config.php and
+ * immediately issues CREATE TABLE and ALTER TABLE against the live database as
+ * the application's own database user, so anyone who can reach it over HTTP can
+ * change the schema of a production database. It also overwrites local
+ * customisations, which is why this repository is deployed with git rather than
+ * with this tool (see architecture.md).
+ *
+ * install/.htaccess used to hide it, but <Files> was measured to be misapplied
+ * by LiteSpeed - it denied the installer's own stylesheet and steps while
+ * leaving the file reachable in other configurations. Relying on a web-server
+ * rule to protect an unauthenticated DDL endpoint is not a defence, so the check
+ * is in PHP, where it cannot be misparsed or ignored.
+ *
+ * The test is for a .git directory or file at the project root, so a git clone
+ * disables itself with no configuration and a plain FTP upload of the upstream
+ * release keeps the original behaviour.
+ */
+
+require 'guard.php';
+
+if (file_exists(dirname(__DIR__) . '/.git')) {
+    die('The bundled updater is disabled on git-managed deployments. Deploy with git instead.');
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 

@@ -82,15 +82,18 @@ docs/**
 !system/uploads/paid.png
 system/uploads/invoices/**
 
-# .htaccess is ignored by default (line above), but these three are access
+# .htaccess is ignored by default (line above), but these two are access
 # control, not local machine config. If they are not in git then a server set up
 # with "git clone" or "git pull" silently runs without them:
-#   install/.htaccess  - blocks the installer, which would otherwise DROP every
-#                        table and hand out a new admin account
 #   system/.htaccess   - blocks direct web access to system/*.php
 #   pages/.htaccess    - CORS headers the page builder relies on
-!install/.htaccess
-!system/.htaccess
+#
+# There is deliberately no install/.htaccess. It was removed after <Files> and
+# <IfFile> were both measured to be misapplied by LiteSpeed: the rules denied
+# the installer's own stylesheet, logo and every step after the first, making
+# the wizard unusable. The installer is instead locked by install/guard.php,
+# which is plain PHP and cannot be misparsed or disabled by server config.
+# !system/.htaccess
 # pages/ is a generated directory and stays ignored, but the CORS rules have to
 # be in git. Un-ignoring the directory itself is required first: git never
 # descends into an excluded directory, so a bare "!pages/.htaccess" is ignored.
