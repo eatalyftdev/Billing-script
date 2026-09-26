@@ -26,12 +26,26 @@ system/plugin/ui/*
 ui/ui_custom/**
 !ui/ui_custom/index.html
 !ui/ui_custom/README.md
-system/uploads/**
+# system/uploads holds user-supplied files at runtime, but PHPNuxBill reads
+# some of these defaults unconditionally. A live server pulled from git has no
+# init.php guard around notifications.default.json, so its absence takes down
+# every page, not just the admin. Ship the defaults, ignore the rest.
+system/uploads/*
 !system/uploads/*.default.png
-system/uploads/sms/**
+!system/uploads/*.default.jpg
+!system/uploads/notifications.default.json
+!system/uploads/index.html
+# Re-include the subdirectories themselves: git will not descend into an
+# excluded directory, which would make the index.html negations below no-ops.
+!system/uploads/sms/
+!system/uploads/system/
+!system/uploads/_sysfrm_tmp_/
+system/uploads/sms/*
 !system/uploads/sms/index.html
-system/uploads/system/**
+system/uploads/system/*
 !system/uploads/system/index.html
+system/uploads/_sysfrm_tmp_/*
+!system/uploads/_sysfrm_tmp_/index.html
 ui/themes/**
 !ui/themes/index.html
 !ui/themes/README.md
